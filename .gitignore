@@ -1,0 +1,8 @@
+# compiled binaries
+/aegian
+/aegian.exe
+/node.exe
+*.exe
+
+# local data (Raft logs appear in Stage 3)
+/data/

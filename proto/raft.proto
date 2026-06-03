@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package raft;
+option go_package = "aegian/proto";
+
+// The two RPCs every node exposes to its peers.
+service Raft {
+  rpc RequestVote   (RequestVoteRequest)   returns (RequestVoteReply);
+  rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesReply);
+}
+
+// Candidate asks peers for votes (used in Stage 1).
+message RequestVoteRequest {
+  int32 term           = 1;  // candidate's term
+  int32 candidate_id   = 2;  // who is asking
+  int32 last_log_index = 3;  // Stage 2: log-up-to-date check
+  int32 last_log_term  = 4;
+}
+
+message RequestVoteReply {
+  int32 term         = 1;    // lets a candidate notice it's behind
+  bool  vote_granted = 2;
+}
+
+// Leader sends this: empty = heartbeat (Stage 1), with entries = replication (Stage 2).
+message AppendEntriesRequest {
+  int32 term            = 1;
+  int32 leader_id       = 2;
+  int32 prev_log_index  = 3;
+  int32 prev_log_term   = 4;
+  repeated LogEntry entries = 5;  // empty for heartbeats
+  int32 leader_commit   = 6;
+}
+
+message AppendEntriesReply {
+  int32 term    = 1;
+  bool  success = 2;
+}
+
+// One command in the replicated log (used from Stage 2 on).
+message LogEntry {
+  int32  term    = 1;
+  string command = 2;
+}
