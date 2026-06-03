@@ -21,7 +21,6 @@ func main() {
 	peers := flag.String("peers", "", "comma-separated peer addresses")
 	flag.Parse()
 
-	// 1) Start our own gRPC server.
 	lis, err := net.Listen("tcp", ":"+*port)
 	if err != nil {
 		log.Fatalf("node %d: failed to listen on :%s: %v", *id, *port, err)
@@ -36,7 +35,6 @@ func main() {
 		}
 	}()
 
-	// 2) Wait a moment so peers can start, then ping each one (throwaway scaffolding).
 	time.Sleep(3 * time.Second)
 	for _, addr := range strings.Split(*peers, ",") {
 		if addr == "" {
@@ -59,5 +57,5 @@ func main() {
 		log.Printf("node %d: pinged %s, vote_granted=%v", *id, addr, reply.GetVoteGranted())
 	}
 
-	select {} // block forever so the server keeps running
+	select {}
 }

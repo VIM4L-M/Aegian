@@ -7,10 +7,8 @@ import (
 	"aegian/proto"
 )
 
-// Server implements the gRPC RaftServer interface.
-// For Stage 0 the handlers just log and reply — no real Raft logic yet.
 type Server struct {
-	proto.UnimplementedRaftServer // required: forward-compatibility for new RPCs
+	proto.UnimplementedRaftServer
 	ID int32
 }
 
