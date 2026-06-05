@@ -1,16 +1,15 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"log"
 	"net"
 	"strings"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"aegian/internal/raft"
 	"aegian/internal/server"
 	"aegian/proto"
 )
@@ -21,12 +20,27 @@ func main() {
 	peers := flag.String("peers", "", "comma-separated peer addresses")
 	flag.Parse()
 
+	var peerClients []proto.RaftClient
+	for _, addr := range strings.Split(*peers, ",") {
+		if addr == "" {
+			continue
+		}
+		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatalf("node %d: could not create client for %s: %v", *id, addr, err)
+		}
+		peerClients = append(peerClients, proto.NewRaftClient(conn))
+	}
+
+	node := raft.NewNode(int32(*id), peerClients)
+	srv := &server.Server{Node: node}
+
 	lis, err := net.Listen("tcp", ":"+*port)
 	if err != nil {
 		log.Fatalf("node %d: failed to listen on :%s: %v", *id, *port, err)
 	}
 	grpcServer := grpc.NewServer()
-	proto.RegisterRaftServer(grpcServer, &server.Server{ID: int32(*id)})
+	proto.RegisterRaftServer(grpcServer, srv)
 
 	go func() {
 		log.Printf("node %d: listening on :%s", *id, *port)
@@ -35,27 +49,7 @@ func main() {
 		}
 	}()
 
-	time.Sleep(3 * time.Second)
-	for _, addr := range strings.Split(*peers, ",") {
-		if addr == "" {
-			continue
-		}
-		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			log.Printf("node %d: could not create client for %s: %v", *id, addr, err)
-			continue
-		}
-		client := proto.NewRaftClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		reply, err := client.RequestVote(ctx, &proto.RequestVoteRequest{Term: 1, CandidateId: int32(*id)})
-		cancel()
-		conn.Close()
-		if err != nil {
-			log.Printf("node %d: ping to %s failed: %v", *id, addr, err)
-			continue
-		}
-		log.Printf("node %d: pinged %s, vote_granted=%v", *id, addr, reply.GetVoteGranted())
-	}
+	go node.Run()
 
 	select {}
 }
