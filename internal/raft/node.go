@@ -37,6 +37,7 @@ const (
 	minElectionTimeout = 1000 * time.Millisecond
 	maxElectionTimeout = 2000 * time.Millisecond
 	tickInterval       = 50 * time.Millisecond
+	heartbeatInterval  = 300 * time.Millisecond
 )
 
 func randomElectionTimeout() time.Duration {
@@ -103,14 +104,12 @@ func (n *Node) startElection() {
 	n.mu.Unlock()
 
 	req := &proto.RequestVoteRequest{
-		Term:         term,
-		CandidateId:  n.id,
-		LastLogIndex: 0,
-		LastLogTerm:  0,
+		Term:        term,
+		CandidateId: n.id,
 	}
 
 	majority := (len(n.peers)+1)/2 + 1
-	votes := 1 // we always vote for ourselves
+	votes := 1
 
 	for _, peer := range n.peers {
 		go func(p proto.RaftClient) {
@@ -130,7 +129,7 @@ func (n *Node) startElection() {
 				return
 			}
 			if n.role != Candidate || n.currentTerm != term {
-				return // we already moved on
+				return
 			}
 			if reply.GetVoteGranted() {
 				votes++
@@ -150,7 +149,7 @@ func (n *Node) becomeLeader() {
 	}
 	n.role = Leader
 	log.Printf("node %d: WON election for term %d — becoming LEADER", n.id, n.currentTerm)
-	// heartbeats start in piece 4
+	go n.runHeartbeats(n.currentTerm)
 }
 
 // becomeFollower must be called with n.mu held.
@@ -159,6 +158,45 @@ func (n *Node) becomeFollower(term int32) {
 	n.role = Follower
 	n.votedFor = noVote
 	n.lastHeard = time.Now()
+}
+
+func (n *Node) runHeartbeats(term int32) {
+	for {
+		n.mu.Lock()
+		if n.role != Leader || n.currentTerm != term {
+			n.mu.Unlock()
+			return
+		}
+		n.mu.Unlock()
+
+		n.sendHeartbeats(term)
+		time.Sleep(heartbeatInterval)
+	}
+}
+
+func (n *Node) sendHeartbeats(term int32) {
+	req := &proto.AppendEntriesRequest{
+		Term:     term,
+		LeaderId: n.id,
+	}
+
+	for _, peer := range n.peers {
+		go func(p proto.RaftClient) {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
+
+			reply, err := p.AppendEntries(ctx, req)
+			if err != nil {
+				return
+			}
+
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			if reply.GetTerm() > n.currentTerm {
+				n.becomeFollower(reply.GetTerm())
+			}
+		}(peer)
+	}
 }
 
 func (n *Node) HandleRequestVote(req *proto.RequestVoteRequest) *proto.RequestVoteReply {
@@ -187,6 +225,17 @@ func (n *Node) HandleRequestVote(req *proto.RequestVoteRequest) *proto.RequestVo
 func (n *Node) HandleAppendEntries(req *proto.AppendEntriesRequest) *proto.AppendEntriesReply {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	log.Printf("node %d: got AppendEntries from node %d (term %d)", n.id, req.GetLeaderId(), req.GetTerm())
-	return &proto.AppendEntriesReply{Term: n.currentTerm, Success: false}
+
+	if req.GetTerm() < n.currentTerm {
+		return &proto.AppendEntriesReply{Term: n.currentTerm, Success: false}
+	}
+
+	if req.GetTerm() > n.currentTerm {
+		n.becomeFollower(req.GetTerm())
+	}
+
+	n.role = Follower
+	n.lastHeard = time.Now()
+
+	return &proto.AppendEntriesReply{Term: n.currentTerm, Success: true}
 }
