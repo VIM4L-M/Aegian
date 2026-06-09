@@ -4,5 +4,5 @@
 /node.exe
 *.exe
 
-# local data (Raft logs appear in Stage 3)
+# local data 
 /data/

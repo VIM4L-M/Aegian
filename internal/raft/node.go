@@ -53,6 +53,8 @@ type Node struct {
 	id    int32
 	peers []proto.RaftClient
 
+	store *storage
+
 	currentTerm int32
 	votedFor    int32
 	role        Role
@@ -60,18 +62,22 @@ type Node struct {
 	lastHeard       time.Time
 	electionTimeout time.Duration
 
-	// --- new in Stage 2 ---
-	log         []*proto.LogEntry // index 0 is a sentinel; real entries start at 1
-	commitIndex int32             // highest log index known to be committed
-	lastApplied int32             // highest log index applied to the KV map
-	kv          map[string]string // the state machine
+	log         []*proto.LogEntry
+	commitIndex int32             
+	lastApplied int32             
+	kv          map[string]string 
 
-	nextIndex  []int32 // per peer (by slice position): next index to send
-	matchIndex []int32 // per peer: highest index known replicated
+	nextIndex  []int32 
+	matchIndex []int32 
 }
 
 func NewNode(id int32, peers []proto.RaftClient) *Node {
-	return &Node{
+	store, err := newStorage(id)
+	if err != nil {
+		log.Fatalf("node %d: could not open storage: %v", id, err)
+	}
+
+	n := &Node{
 		id:              id,
 		peers:           peers,
 		currentTerm:     0,
@@ -80,14 +86,33 @@ func NewNode(id int32, peers []proto.RaftClient) *Node {
 		lastHeard:       time.Now(),
 		electionTimeout: randomElectionTimeout(),
 
-		log:         []*proto.LogEntry{{Term: 0}}, // sentinel at index 0
+		log:         []*proto.LogEntry{{Term: 0}},
 		commitIndex: 0,
 		lastApplied: 0,
 		kv:          make(map[string]string),
+		store:       store,
 	}
+
+	term, votedFor, savedLog, ok, err := store.load()
+	if err != nil {
+		log.Fatalf("node %d: could not load storage: %v", id, err)
+	}
+	if ok {
+		n.currentTerm = term
+		n.votedFor = votedFor
+		if len(savedLog) > 0 {
+			n.log = savedLog
+		}
+		log.Printf("node %d: RESTORED from disk — term %d, votedFor %d, log up to index %d",
+			id, n.currentTerm, n.votedFor, n.lastLogIndex())
+
+		n.commitIndex = n.lastLogIndex()
+		n.applyCommitted()
+	}
+
+	return n
 }
 
-// lastLogIndex / lastLogTerm must be called with n.mu held.
 func (n *Node) lastLogIndex() int32 {
 	return int32(len(n.log) - 1)
 }
@@ -96,8 +121,6 @@ func (n *Node) lastLogTerm() int32 {
 	return n.log[len(n.log)-1].Term
 }
 
-// applyCommitted applies any newly-committed entries to the KV map, in order.
-// Must be called with n.mu held.
 func (n *Node) applyCommitted() {
 	for n.lastApplied < n.commitIndex {
 		n.lastApplied++
@@ -106,8 +129,6 @@ func (n *Node) applyCommitted() {
 	}
 }
 
-// applyCommand parses one command string and mutates the KV map.
-// Must be called with n.mu held.
 func (n *Node) applyCommand(cmd string) {
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
@@ -127,7 +148,6 @@ func (n *Node) applyCommand(cmd string) {
 	}
 }
 
-// Get reads a value from the state machine (used for testing / Stage 4).
 func (n *Node) Get(key string) (string, bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -159,6 +179,7 @@ func (n *Node) becomeCandidate() {
 	n.votedFor = n.id
 	n.lastHeard = time.Now()
 	n.electionTimeout = randomElectionTimeout()
+	n.persist() 
 	log.Printf("node %d: election timeout — becoming Candidate for term %d", n.id, n.currentTerm)
 	go n.startElection()
 }
@@ -233,6 +254,7 @@ func (n *Node) becomeFollower(term int32) {
 	n.role = Follower
 	n.votedFor = noVote
 	n.lastHeard = time.Now()
+	n.persist() 
 }
 
 func (n *Node) runHeartbeats(term int32) {
@@ -301,6 +323,7 @@ func (n *Node) replicateToPeer(i int, term int32) {
 	if reply.GetSuccess() {
 		n.matchIndex[i] = prevLogIndex + int32(len(entries))
 		n.nextIndex[i] = n.matchIndex[i] + 1
+		n.advanceCommitIndex()
 	} else if n.nextIndex[i] > 1 {
 		n.nextIndex[i]--
 	}
@@ -318,11 +341,17 @@ func (n *Node) HandleRequestVote(req *proto.RequestVoteRequest) *proto.RequestVo
 		n.becomeFollower(req.GetTerm())
 	}
 
+	myLastIndex := n.lastLogIndex()
+	myLastTerm := n.lastLogTerm()
+	logOk := req.GetLastLogTerm() > myLastTerm ||
+		(req.GetLastLogTerm() == myLastTerm && req.GetLastLogIndex() >= myLastIndex)
+
 	voteGranted := false
-	if n.votedFor == noVote || n.votedFor == req.GetCandidateId() {
+	if (n.votedFor == noVote || n.votedFor == req.GetCandidateId()) && logOk {
 		n.votedFor = req.GetCandidateId()
 		n.lastHeard = time.Now()
 		voteGranted = true
+		n.persist() 
 		log.Printf("node %d: voted for node %d in term %d", n.id, req.GetCandidateId(), n.currentTerm)
 	}
 
@@ -361,8 +390,19 @@ func (n *Node) HandleAppendEntries(req *proto.AppendEntriesRequest) *proto.Appen
 	}
 
 	if len(req.GetEntries()) > 0 {
+		n.persist()
 		log.Printf("node %d: appended %d entries from leader %d (log now index %d)",
 			n.id, len(req.GetEntries()), req.GetLeaderId(), n.lastLogIndex())
+	}
+	
+	if req.GetLeaderCommit() > n.commitIndex {
+		last := n.lastLogIndex()
+		if req.GetLeaderCommit() < last {
+			n.commitIndex = req.GetLeaderCommit()
+		} else {
+			n.commitIndex = last
+		}
+		n.applyCommitted()
 	}
 
 	return &proto.AppendEntriesReply{Term: n.currentTerm, Success: true}
@@ -381,6 +421,7 @@ func (n *Node) Propose(command string) bool {
 		Command: command,
 	}
 	n.log = append(n.log, entry)
+	n.persist()
 
 	log.Printf("node %d: LEADER appended [%s] at index %d (term %d)",
 		n.id, command, n.lastLogIndex(), n.currentTerm)
@@ -400,4 +441,38 @@ func (n *Node) proposeLoop() {
 
 func itoa(i int) string {
 	return strconv.Itoa(i)
+}
+
+func (n *Node) advanceCommitIndex() {
+	for idx := n.lastLogIndex(); idx > n.commitIndex; idx-- {
+		if n.log[idx].Term != n.currentTerm {
+			break
+		}
+
+		count := 1
+		for i := range n.peers {
+			if n.matchIndex[i] >= idx {
+				count++
+			}
+		}
+
+		if count >= (len(n.peers)+1)/2+1 {
+			n.commitIndex = idx
+			log.Printf("node %d: LEADER advanced commitIndex to %d", n.id, n.commitIndex)
+			n.applyCommitted()
+			break
+		}
+	}
+}
+
+func (n *Node) persist() {
+	if err := n.store.save(n.currentTerm, n.votedFor, n.log); err != nil {
+		log.Printf("node %d: PERSIST FAILED: %v", n.id, err)
+	}
+}
+
+func (n *Node) Close() {
+	if n.store != nil {
+		n.store.close()
+	}
 }

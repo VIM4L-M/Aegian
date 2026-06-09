@@ -4,7 +4,12 @@ import (
 	"flag"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"syscall"
+	"strconv"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -18,7 +23,17 @@ func main() {
 	id := flag.Int("node-id", 1, "this node's ID")
 	port := flag.String("grpc-port", "50071", "gRPC port to listen on")
 	peers := flag.String("peers", "", "comma-separated peer addresses")
+	fresh := flag.Bool("fresh", false, "wipe saved state and start clean")
 	flag.Parse()
+
+	if *fresh {
+		dbPath := filepath.Join("data", "node-"+strconv.Itoa(*id)+".db")
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("node %d: could not wipe state: %v", *id, err)
+		} else {
+			log.Printf("node %d: --fresh — wiped saved state", *id)
+		}
+	}
 
 	var peerClients []proto.RaftClient
 	for _, addr := range strings.Split(*peers, ",") {
@@ -51,5 +66,12 @@ func main() {
 
 	go node.Run()
 
-	select {}
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	log.Printf("node %d: shutting down…", *id)
+	grpcServer.GracefulStop()
+	node.Close()
+	log.Printf("node %d: storage closed, bye", *id)
 }
