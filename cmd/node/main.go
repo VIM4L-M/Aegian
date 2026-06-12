@@ -7,9 +7,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
-	"strconv"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,7 +22,9 @@ import (
 func main() {
 	id := flag.Int("node-id", 1, "this node's ID")
 	port := flag.String("grpc-port", "50071", "gRPC port to listen on")
-	peers := flag.String("peers", "", "comma-separated peer addresses")
+	httpPort := flag.String("http-port", "3001", "HTTP port for the client API")
+	peers := flag.String("peers", "", "comma-separated peer gRPC addresses")
+	peerHTTPFlag := flag.String("peer-http", "", "comma-separated id=httpaddr pairs")
 	fresh := flag.Bool("fresh", false, "wipe saved state and start clean")
 	flag.Parse()
 
@@ -47,6 +49,8 @@ func main() {
 		peerClients = append(peerClients, proto.NewRaftClient(conn))
 	}
 
+	peerHTTP := parsePeerHTTP(*peerHTTPFlag)
+
 	node := raft.NewNode(int32(*id), peerClients)
 	srv := &server.Server{Node: node}
 
@@ -58,9 +62,17 @@ func main() {
 	proto.RegisterRaftServer(grpcServer, srv)
 
 	go func() {
-		log.Printf("node %d: listening on :%s", *id, *port)
+		log.Printf("node %d: gRPC listening on :%s", *id, *port)
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatalf("node %d: serve failed: %v", *id, err)
+		}
+	}()
+
+	httpServer := server.NewHTTPServer(node, peerHTTP)
+	go func() {
+		log.Printf("node %d: HTTP API listening on :%s", *id, *httpPort)
+		if err := httpServer.Start(":" + *httpPort); err != nil {
+			log.Fatalf("node %d: HTTP serve failed: %v", *id, err)
 		}
 	}()
 
@@ -74,4 +86,23 @@ func main() {
 	grpcServer.GracefulStop()
 	node.Close()
 	log.Printf("node %d: storage closed, bye", *id)
+}
+
+func parsePeerHTTP(s string) map[int32]string {
+	result := make(map[int32]string)
+	for _, pair := range strings.Split(s, ",") {
+		if pair == "" {
+			continue
+		}
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		idNum, err := strconv.Atoi(kv[0])
+		if err != nil {
+			continue
+		}
+		result[int32(idNum)] = kv[1]
+	}
+	return result
 }

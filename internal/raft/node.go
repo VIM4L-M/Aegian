@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-
+	"errors"
 	"aegian/proto"
 )
 
@@ -18,6 +18,11 @@ const (
 	Follower Role = iota
 	Candidate
 	Leader
+)
+
+var (
+	ErrNotLeader = errors.New("not the leader")
+	ErrTimeout   = errors.New("commit timed out")
 )
 
 func (r Role) String() string {
@@ -69,6 +74,9 @@ type Node struct {
 
 	nextIndex  []int32 
 	matchIndex []int32 
+
+	leaderID int32
+	commitWaiters map[int32][]chan struct{}
 }
 
 func NewNode(id int32, peers []proto.RaftClient) *Node {
@@ -91,6 +99,7 @@ func NewNode(id int32, peers []proto.RaftClient) *Node {
 		lastApplied: 0,
 		kv:          make(map[string]string),
 		store:       store,
+		commitWaiters: make(map[int32][]chan struct{}),
 	}
 
 	term, votedFor, savedLog, ok, err := store.load()
@@ -109,6 +118,7 @@ func NewNode(id int32, peers []proto.RaftClient) *Node {
 		n.commitIndex = n.lastLogIndex()
 		n.applyCommitted()
 	}
+	n.notifyCommitWaiters()
 
 	return n
 }
@@ -127,6 +137,7 @@ func (n *Node) applyCommitted() {
 		entry := n.log[n.lastApplied]
 		n.applyCommand(entry.Command)
 	}
+	n.notifyCommitWaiters()
 }
 
 func (n *Node) applyCommand(cmd string) {
@@ -159,8 +170,6 @@ func (n *Node) Run() {
 	n.mu.Lock()
 	log.Printf("node %d: started as %s (term %d)", n.id, n.role, n.currentTerm)
 	n.mu.Unlock()
-
-	go n.proposeLoop()
 
 	for {
 		time.Sleep(tickInterval)
@@ -237,6 +246,7 @@ func (n *Node) becomeLeader() {
 		return
 	}
 	n.role = Leader
+	n.leaderID = n.id
 
 	n.nextIndex = make([]int32, len(n.peers))
 	n.matchIndex = make([]int32, len(n.peers))
@@ -277,6 +287,7 @@ func (n *Node) replicate(term int32) {
 	}
 }
 
+//leader node checks for the replication
 func (n *Node) replicateToPeer(i int, term int32) {
 	n.mu.Lock()
 	if n.role != Leader || n.currentTerm != term {
@@ -371,6 +382,7 @@ func (n *Node) HandleAppendEntries(req *proto.AppendEntriesRequest) *proto.Appen
 	}
 	n.role = Follower
 	n.lastHeard = time.Now()
+	n.leaderID = req.GetLeaderId()
 
 	prevIdx := req.GetPrevLogIndex()
 	if prevIdx > n.lastLogIndex() || n.log[prevIdx].Term != req.GetPrevLogTerm() {
@@ -428,17 +440,6 @@ func (n *Node) Propose(command string) bool {
 	return true
 }
 
-func (n *Node) proposeLoop() {
-	i := 1
-	for {
-		time.Sleep(4 * time.Second)
-		ok := n.Propose("PUT key" + itoa(i) + " val" + itoa(i))
-		if ok {
-			i++
-		}
-	}
-}
-
 func itoa(i int) string {
 	return strconv.Itoa(i)
 }
@@ -475,4 +476,53 @@ func (n *Node) Close() {
 	if n.store != nil {
 		n.store.close()
 	}
+}
+
+func (n *Node) notifyCommitWaiters() {
+	for idx, chans := range n.commitWaiters {
+		if idx <= n.commitIndex {
+			for _, ch := range chans {
+				close(ch)
+			}
+			delete(n.commitWaiters, idx)
+		}
+	}
+}
+
+func (n *Node) ProposeAndWait(command string, timeout time.Duration) error {
+	n.mu.Lock()
+	if n.role != Leader {
+		n.mu.Unlock()
+		return ErrNotLeader
+	}
+
+	entry := &proto.LogEntry{Term: n.currentTerm, Command: command}
+	n.log = append(n.log, entry)
+	n.persist()
+	index := n.lastLogIndex()
+
+	log.Printf("node %d: LEADER appended [%s] at index %d (term %d)", n.id, command, index, n.currentTerm)
+
+	ch := make(chan struct{})
+	n.commitWaiters[index] = append(n.commitWaiters[index], ch)
+	n.mu.Unlock()
+
+	select {
+	case <-ch:
+		return nil
+	case <-time.After(timeout):
+		return ErrTimeout
+	}
+}
+
+func (n *Node) IsLeader() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.role == Leader
+}
+
+func (n *Node) LeaderID() int32 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.leaderID
 }
