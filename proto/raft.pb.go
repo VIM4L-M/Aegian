@@ -332,6 +332,102 @@ func (x *LogEntry) GetCommand() string {
 	return ""
 }
 
+type ClientCommandRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Command       string                 `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClientCommandRequest) Reset() {
+	*x = ClientCommandRequest{}
+	mi := &file_proto_raft_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClientCommandRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientCommandRequest) ProtoMessage() {}
+
+func (x *ClientCommandRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_raft_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientCommandRequest.ProtoReflect.Descriptor instead.
+func (*ClientCommandRequest) Descriptor() ([]byte, []int) {
+	return file_proto_raft_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ClientCommandRequest) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+type ClientCommandReply struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClientCommandReply) Reset() {
+	*x = ClientCommandReply{}
+	mi := &file_proto_raft_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClientCommandReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientCommandReply) ProtoMessage() {}
+
+func (x *ClientCommandReply) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_raft_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientCommandReply.ProtoReflect.Descriptor instead.
+func (*ClientCommandReply) Descriptor() ([]byte, []int) {
+	return file_proto_raft_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ClientCommandReply) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ClientCommandReply) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_proto_raft_proto protoreflect.FileDescriptor
 
 const file_proto_raft_proto_rawDesc = "" +
@@ -357,10 +453,16 @@ const file_proto_raft_proto_rawDesc = "" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\"8\n" +
 	"\bLogEntry\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x05R\x04term\x12\x18\n" +
-	"\acommand\x18\x02 \x01(\tR\acommand2\x8e\x01\n" +
+	"\acommand\x18\x02 \x01(\tR\acommand\"0\n" +
+	"\x14ClientCommandRequest\x12\x18\n" +
+	"\acommand\x18\x01 \x01(\tR\acommand\"H\n" +
+	"\x12ClientCommandReply\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage2\xd5\x01\n" +
 	"\x04Raft\x12?\n" +
 	"\vRequestVote\x12\x18.raft.RequestVoteRequest\x1a\x16.raft.RequestVoteReply\x12E\n" +
-	"\rAppendEntries\x12\x1a.raft.AppendEntriesRequest\x1a\x18.raft.AppendEntriesReplyB\x0eZ\faegian/protob\x06proto3"
+	"\rAppendEntries\x12\x1a.raft.AppendEntriesRequest\x1a\x18.raft.AppendEntriesReply\x12E\n" +
+	"\rClientCommand\x12\x1a.raft.ClientCommandRequest\x1a\x18.raft.ClientCommandReplyB\x0eZ\faegian/protob\x06proto3"
 
 var (
 	file_proto_raft_proto_rawDescOnce sync.Once
@@ -374,22 +476,26 @@ func file_proto_raft_proto_rawDescGZIP() []byte {
 	return file_proto_raft_proto_rawDescData
 }
 
-var file_proto_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_proto_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_proto_raft_proto_goTypes = []any{
 	(*RequestVoteRequest)(nil),   // 0: raft.RequestVoteRequest
 	(*RequestVoteReply)(nil),     // 1: raft.RequestVoteReply
 	(*AppendEntriesRequest)(nil), // 2: raft.AppendEntriesRequest
 	(*AppendEntriesReply)(nil),   // 3: raft.AppendEntriesReply
 	(*LogEntry)(nil),             // 4: raft.LogEntry
+	(*ClientCommandRequest)(nil), // 5: raft.ClientCommandRequest
+	(*ClientCommandReply)(nil),   // 6: raft.ClientCommandReply
 }
 var file_proto_raft_proto_depIdxs = []int32{
 	4, // 0: raft.AppendEntriesRequest.entries:type_name -> raft.LogEntry
 	0, // 1: raft.Raft.RequestVote:input_type -> raft.RequestVoteRequest
 	2, // 2: raft.Raft.AppendEntries:input_type -> raft.AppendEntriesRequest
-	1, // 3: raft.Raft.RequestVote:output_type -> raft.RequestVoteReply
-	3, // 4: raft.Raft.AppendEntries:output_type -> raft.AppendEntriesReply
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
+	5, // 3: raft.Raft.ClientCommand:input_type -> raft.ClientCommandRequest
+	1, // 4: raft.Raft.RequestVote:output_type -> raft.RequestVoteReply
+	3, // 5: raft.Raft.AppendEntries:output_type -> raft.AppendEntriesReply
+	6, // 6: raft.Raft.ClientCommand:output_type -> raft.ClientCommandReply
+	4, // [4:7] is the sub-list for method output_type
+	1, // [1:4] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -406,7 +512,7 @@ func file_proto_raft_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_raft_proto_rawDesc), len(file_proto_raft_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,7 +1,7 @@
 services:
   node1:
     build: .
-    command: ["--node-id=1", "--grpc-port=50071", "--http-port=3000", "--peers=node2:50071,node3:50071", "--peer-http=1=node1:3000,2=node2:3000,3=node3:3000"]
+    command: ["--node-id=1", "--grpc-port=50071", "--http-port=3000", "--peers=2=node2:50071,3=node3:50071", "--peer-http=1=node1:3000,2=node2:3000,3=node3:3000"]
     ports:
       - "3001:3000"
     volumes:
@@ -11,7 +11,7 @@ services:
 
   node2:
     build: .
-    command: ["--node-id=2", "--grpc-port=50071", "--http-port=3000", "--peers=node1:50071,node3:50071", "--peer-http=1=node1:3000,2=node2:3000,3=node3:3000"]
+    command: ["--node-id=2", "--grpc-port=50071", "--http-port=3000", "--peers=1=node1:50071,3=node3:50071", "--peer-http=1=node1:3000,2=node2:3000,3=node3:3000"]
     ports:
       - "3002:3000"
     volumes:
@@ -21,7 +21,7 @@ services:
 
   node3:
     build: .
-    command: ["--node-id=3", "--grpc-port=50071", "--http-port=3000", "--peers=node1:50071,node2:50071", "--peer-http=1=node1:3000,2=node2:3000,3=node3:3000"]
+    command: ["--node-id=3", "--grpc-port=50071", "--http-port=3000", "--peers=1=node1:50071,2=node2:50071", "--peer-http=1=node1:3000,2=node2:3000,3=node3:3000"]
     ports:
       - "3003:3000"
     volumes:

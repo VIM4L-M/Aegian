@@ -23,7 +23,7 @@ func main() {
 	id := flag.Int("node-id", 1, "this node's ID")
 	port := flag.String("grpc-port", "50071", "gRPC port to listen on")
 	httpPort := flag.String("http-port", "3001", "HTTP port for the client API")
-	peers := flag.String("peers", "", "comma-separated peer gRPC addresses")
+	peersWithID := flag.String("peers", "", "comma-separated id=grpcaddr pairs of OTHER nodes")
 	peerHTTPFlag := flag.String("peer-http", "", "comma-separated id=httpaddr pairs")
 	fresh := flag.Bool("fresh", false, "wipe saved state and start clean")
 	flag.Parse()
@@ -37,21 +37,34 @@ func main() {
 		}
 	}
 
+	peerHTTP := parsePeerHTTP(*peerHTTPFlag)
+
 	var peerClients []proto.RaftClient
-	for _, addr := range strings.Split(*peers, ",") {
-		if addr == "" {
+	peerClientsByID := make(map[int32]proto.RaftClient)
+
+	for _, pair := range strings.Split(*peersWithID, ",") {
+		if pair == "" {
 			continue
 		}
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		peerID, err := strconv.Atoi(kv[0])
+		if err != nil {
+			continue
+		}
+		addr := kv[1]
 		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Fatalf("node %d: could not create client for %s: %v", *id, addr, err)
 		}
-		peerClients = append(peerClients, proto.NewRaftClient(conn))
+		client := proto.NewRaftClient(conn)
+		peerClients = append(peerClients, client)
+		peerClientsByID[int32(peerID)] = client
 	}
 
-	peerHTTP := parsePeerHTTP(*peerHTTPFlag)
-
-	node := raft.NewNode(int32(*id), peerClients)
+	node := raft.NewNode(int32(*id), peerClients, peerClientsByID)
 	srv := &server.Server{Node: node}
 
 	lis, err := net.Listen("tcp", ":"+*port)

@@ -77,9 +77,12 @@ type Node struct {
 
 	leaderID int32
 	commitWaiters map[int32][]chan struct{}
+
+	peerClientsByID map[int32]proto.RaftClient
 }
 
-func NewNode(id int32, peers []proto.RaftClient) *Node {
+func NewNode(id int32, peers []proto.RaftClient, peerClientsByID map[int32]proto.RaftClient) *Node {
+
 	store, err := newStorage(id)
 	if err != nil {
 		log.Fatalf("node %d: could not open storage: %v", id, err)
@@ -100,6 +103,7 @@ func NewNode(id int32, peers []proto.RaftClient) *Node {
 		kv:          make(map[string]string),
 		store:       store,
 		commitWaiters: make(map[int32][]chan struct{}),
+		peerClientsByID: peerClientsByID,
 	}
 
 	term, votedFor, savedLog, ok, err := store.load()
@@ -525,4 +529,30 @@ func (n *Node) LeaderID() int32 {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.leaderID
+}
+
+func (n *Node) leaderClient() (proto.RaftClient, bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.leaderID == 0 || n.leaderID == n.id {
+		return nil, false
+	}
+	client, ok := n.peerClientsByID[n.leaderID]
+	return client, ok
+}
+
+func (n *Node) LeaderClient() (proto.RaftClient, bool) {
+	return n.leaderClient()
+}
+
+func (n *Node) HandleClientCommand(command string) error {
+	n.mu.Lock()
+	isLeader := n.role == Leader
+	n.mu.Unlock()
+
+	if !isLeader {
+		return ErrNotLeader
+	}
+
+	return n.ProposeAndWait(command, 3*time.Second)
 }

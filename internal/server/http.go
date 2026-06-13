@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
+	"context"
 	"aegian/internal/raft"
+	"aegian/proto"
 )
 
 type HTTPServer struct {
@@ -74,23 +75,43 @@ func (h *HTTPServer) handleDelete(w http.ResponseWriter, key string) {
 	h.applyWrite(w, command)
 }
 
+func (h *HTTPServer) forwardToLeader(w http.ResponseWriter, command string) {
+	leader, ok := h.node.LeaderClient()
+	if !ok {
+		http.Error(w, "no leader available, try again", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	reply, err := leader.ClientCommand(ctx, &proto.ClientCommandRequest{Command: command})
+	if err != nil {
+		http.Error(w, "could not reach leader, try again", http.StatusServiceUnavailable)
+		return
+	}
+
+	if reply.GetSuccess() {
+		fmt.Fprintln(w, "OK")
+	} else {
+		http.Error(w, reply.GetMessage(), http.StatusServiceUnavailable)
+	}
+}
+
 func (h *HTTPServer) applyWrite(w http.ResponseWriter, command string) {
 	err := h.node.ProposeAndWait(command, 3*time.Second)
 	switch err {
 	case nil:
 		fmt.Fprintln(w, "OK")
-	case raft.ErrNotLeader:
-		leaderID := h.node.LeaderID()
-		addr, found := h.peerHTTP[leaderID]
-		if !found || leaderID == 0 {
-			http.Error(w, "no leader available, try again", http.StatusServiceUnavailable)
-			return
-		}
-		fmt.Fprintf(w, "not the leader — try node %d at %s\n", leaderID, addr)
-		w.WriteHeader(http.StatusMisdirectedRequest)
+		return
 	case raft.ErrTimeout:
 		http.Error(w, "commit timed out, try again", http.StatusServiceUnavailable)
+		return
+	case raft.ErrNotLeader:
+		h.forwardToLeader(w, command)
+		return
 	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }

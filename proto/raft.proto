@@ -7,6 +7,7 @@ option go_package = "aegian/proto";
 service Raft {
   rpc RequestVote   (RequestVoteRequest)   returns (RequestVoteReply);
   rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesReply);
+  rpc ClientCommand (ClientCommandRequest) returns (ClientCommandReply);
 }
 
 // Candidate asks peers for votes (used in Stage 1).
@@ -41,4 +42,13 @@ message AppendEntriesReply {
 message LogEntry {
   int32  term    = 1;
   string command = 2;
+}
+
+message ClientCommandRequest {
+  string command = 1;
+}
+
+message ClientCommandReply {
+  bool   success = 1;
+  string message = 2;
 }
