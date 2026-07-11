@@ -1,15 +1,15 @@
 package raft
 
 import (
+	"aegian/proto"
 	"context"
+	"errors"
 	"log"
 	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"errors"
-	"aegian/proto"
 )
 
 type Role int
@@ -68,14 +68,14 @@ type Node struct {
 	electionTimeout time.Duration
 
 	log         []*proto.LogEntry
-	commitIndex int32             
-	lastApplied int32             
-	kv          map[string]string 
+	commitIndex int32
+	lastApplied int32
+	kv          map[string]string
 
-	nextIndex  []int32 
-	matchIndex []int32 
+	nextIndex  []int32
+	matchIndex []int32
 
-	leaderID int32
+	leaderID      int32
 	commitWaiters map[int32][]chan struct{}
 
 	peerClientsByID map[int32]proto.RaftClient
@@ -97,12 +97,12 @@ func NewNode(id int32, peers []proto.RaftClient, peerClientsByID map[int32]proto
 		lastHeard:       time.Now(),
 		electionTimeout: randomElectionTimeout(),
 
-		log:         []*proto.LogEntry{{Term: 0}},
-		commitIndex: 0,
-		lastApplied: 0,
-		kv:          make(map[string]string),
-		store:       store,
-		commitWaiters: make(map[int32][]chan struct{}),
+		log:             []*proto.LogEntry{{Term: 0}},
+		commitIndex:     0,
+		lastApplied:     0,
+		kv:              make(map[string]string),
+		store:           store,
+		commitWaiters:   make(map[int32][]chan struct{}),
 		peerClientsByID: peerClientsByID,
 	}
 
@@ -192,7 +192,7 @@ func (n *Node) becomeCandidate() {
 	n.votedFor = n.id
 	n.lastHeard = time.Now()
 	n.electionTimeout = randomElectionTimeout()
-	n.persist() 
+	n.persist()
 	log.Printf("node %d: election timeout — becoming Candidate for term %d", n.id, n.currentTerm)
 	go n.startElection()
 }
@@ -268,7 +268,7 @@ func (n *Node) becomeFollower(term int32) {
 	n.role = Follower
 	n.votedFor = noVote
 	n.lastHeard = time.Now()
-	n.persist() 
+	n.persist()
 }
 
 func (n *Node) runHeartbeats(term int32) {
@@ -291,7 +291,7 @@ func (n *Node) replicate(term int32) {
 	}
 }
 
-//leader node checks for the replication
+// leader node checks for the replication
 func (n *Node) replicateToPeer(i int, term int32) {
 	n.mu.Lock()
 	if n.role != Leader || n.currentTerm != term {
@@ -366,7 +366,7 @@ func (n *Node) HandleRequestVote(req *proto.RequestVoteRequest) *proto.RequestVo
 		n.votedFor = req.GetCandidateId()
 		n.lastHeard = time.Now()
 		voteGranted = true
-		n.persist() 
+		n.persist()
 		log.Printf("node %d: voted for node %d in term %d", n.id, req.GetCandidateId(), n.currentTerm)
 	}
 
@@ -410,7 +410,7 @@ func (n *Node) HandleAppendEntries(req *proto.AppendEntriesRequest) *proto.Appen
 		log.Printf("node %d: appended %d entries from leader %d (log now index %d)",
 			n.id, len(req.GetEntries()), req.GetLeaderId(), n.lastLogIndex())
 	}
-	
+
 	if req.GetLeaderCommit() > n.commitIndex {
 		last := n.lastLogIndex()
 		if req.GetLeaderCommit() < last {

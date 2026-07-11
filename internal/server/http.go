@@ -1,19 +1,19 @@
 package server
 
 import (
+	"aegian/internal/raft"
+	"aegian/proto"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
-	"context"
-	"aegian/internal/raft"
-	"aegian/proto"
 )
 
 type HTTPServer struct {
-	node      *raft.Node
-	peerHTTP  map[int32]string
+	node     *raft.Node
+	peerHTTP map[int32]string
 }
 
 func NewHTTPServer(node *raft.Node, peerHTTP map[int32]string) *HTTPServer {

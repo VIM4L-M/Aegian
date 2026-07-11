@@ -66,7 +66,7 @@ func (s *storage) load() (currentTerm int32, votedFor int32, log []*proto.LogEnt
 
 		termBytes := b.Get([]byte("currentTerm"))
 		if termBytes == nil {
-			return nil 
+			return nil
 		}
 		ok = true
 
